@@ -1,14 +1,15 @@
 # Vault Agent Guide  <!-- omit in toc -->
 
+The purpose of this guide is to provide working examples on how to use the Vault Agent. Vault Agent is a client daemon that can perform useful tasks. Currently, it provides a mechanism for easy authentication to Vault in a wide variety of environments. The documentation for using Vault Agent can be found [here](https://www.vaultproject.io/docs/agent/).
+
 - [The Challenge](#the-challenge)
 - [Background](#background)
-- [Vault Agent Auto-Auth](#vault-agent-auto-auth)
+- [Vault Agent Auto-Auth Overview](#vault-agent-auto-auth-overview)
 - [EC2 Auto-Auth Using the AWS IAM Auth Method](#ec2-auto-auth-using-the-aws-iam-auth-method)
     - [Part 1: Configure the AWS IAM Auth Method](#part-1-configure-the-aws-iam-auth-method)
     - [Part 2: Login Manually From the Client Instance](#part-2-login-manually-from-the-client-instance)
     - [Part 3: Using Vault Agent Auto-Auth on the Client Instance](#part-3-using-vault-agent-auto-auth-on-the-client-instance)
-
-The purpose of this guide is to provide working examples on how to use the Vault Agent. Vault Agent is a client daemon that can perform useful tasks. Currently, it provides a mechanism for easy authentication to Vault in a wide variety of environments. The documentation for using Vault Agent can be found [here](https://www.vaultproject.io/docs/agent/).
+- [Pod Auto-Auth Using the Kubernetes Auth Method](#pod-auto-auth-using-the-kubernetes-auth-method)
 
 ## The Challenge
 
@@ -24,7 +25,7 @@ To that end, Vault provides integration with native authentication capabilities 
 
 However, even though Vault provides a number of mechanisms to support secure introduction, it's always been the responsibility of the client to write their own logic for enabling this behavior and managing the lifecycle of tokens.
 
-## Vault Agent Auto-Auth
+## Vault Agent Auto-Auth Overview
 
 To that end, HashiCorp has introduced the Vault Agent which provides a nunber of different helper features, specifically addressing the following challenges
  
@@ -478,3 +479,192 @@ fi
 Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` env var. Here, we're using Vault Agent to obtain a token and write it out to a Ramdisk and as part of the Nomad startup script, we read the response-wrapped token from the Ramdisk and save it to our `VAULT_TOKEN` env var before actually starting Nomad.
 
 > ***NOTE:*** The above example is part of [this](https://github.com/greenbrian/musical-spork) project.
+
+## Pod Auto-Auth Using the Kubernetes Auth Method
+
+[WIP]
+
+- Spin up a K8s cluster. I'm using [Minikube](https://kubernetes.io/docs/setup/minikube/) for this example. You can also check out this workshop repo for running [Vault on GKE](https://github.com/sethvargo/vault-kubernetes-workshop).
+
+- Create K8s Service Account for Vault (TokenReviewer API):
+
+    ```
+    kubectl create serviceaccount vault-auth
+    kubectl apply -f - <<EOH
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1beta1
+    kind: ClusterRoleBinding
+    metadata:
+    name: role-tokenreview-binding
+    namespace: default
+    roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: system:auth-delegator
+    subjects:
+    - kind: ServiceAccount
+    name: vault-auth
+    namespace: default
+    EOH
+    ```
+
+- Create dummy data/policy in Vault:
+
+    ```
+    vault policy write myapp-kv-ro - <<EOH
+    path "secret/myapp/*" {
+        capabilities = ["read", "list"]
+    }
+    EOH
+
+    vault kv put secret/myapp/config \
+        ttl="30s" \
+        username="appuser" \
+        password="suP3rsec(et!"
+    ```
+
+- Enable and Configure the K8s Auth Method:
+
+    ```
+    # Set Up Vault with K8s Auth backend
+    # First, get env details (this is specific to Minikube)
+    export VAULT_SA_NAME=$(kubectl get sa vault-auth -o jsonpath="{.secrets[*]['name']}")
+    export SA_JWT_TOKEN=$(kubectl get secret $VAULT_SA_NAME -o jsonpath="{.data.token}" | base64 --decode; echo)
+    export SA_CA_CRT=$(kubectl get secret $VAULT_SA_NAME -o jsonpath="{.data['ca\.crt']}" | base64 --decode; echo)
+    export K8S_HOST=$(minikube ip)
+
+    # Enable the K8s auth method at the default path ("auth/kubernetes")
+    vault auth enable kubernetes
+
+    # Tell Vault how to communicate with our K8s cluster
+    vault write auth/kubernetes/config \
+    token_reviewer_jwt="$SA_JWT_TOKEN" \
+    kubernetes_host="https://$K8S_HOST:8443" \
+    kubernetes_ca_cert="$SA_CA_CRT"
+
+    # Create a role to map K8s Service Account/Namespace to Vault policies, and default TTL for tokens
+    vault write auth/kubernetes/role/example \
+        bound_service_account_names=vault-auth \
+        bound_service_account_namespaces=default \
+        policies=myapp-kv-rw \
+        ttl=24h
+    ```
+
+- Test Service Account creation and JWT retrieval:
+
+    ```
+    kubectl run tmp --rm -i --tty --serviceaccount=vault-auth --image alpine
+
+    apk update
+    apk add curl jq
+
+    VAULT_ADDR=http://10.0.2.2:8200
+    curl $VAULT_ADDR/v1/sys/health | jq
+
+    KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+    VAULT_K8S_LOGIN=$(curl --request POST --data '{"jwt": "'"$KUBE_TOKEN"'", "role": "example"}' $VAULT_ADDR/v1/auth/kubernetes/login)
+
+    echo $VAULT_K8S_LOGIN | jq
+    ```
+
+- Example Pod spec (example.yml):
+
+    ```yaml
+    ---
+    apiVersion: v1
+    kind: Pod
+    metadata:
+    name: vault-agent-example
+    spec:
+    
+    serviceAccountName: vault-auth
+    
+    restartPolicy: Never
+
+    volumes:
+    - name: vault-token
+        emptyDir:
+        medium: Memory
+    
+    - name: config
+        configMap:
+        name: example-vault-agent-config
+        items:
+        - key: vault-agent-config.hcl
+            path: vault-agent-config.hcl
+
+        - key: consul-template-config.hcl
+            path: consul-template-config.hcl
+    
+    - name: shared-data
+        emptyDir: {}
+
+    containers:
+    - name: vault-agent-auth
+        image: vault
+
+        volumeMounts:
+        - name: vault-token
+        mountPath: /home/vault
+        
+        - name: config
+        mountPath: /etc/vault
+        
+        # This assumes Vault running on local host and K8s running in Minikube using VirtualBox
+        env:
+        - name: VAULT_ADDR
+        value: http://10.0.2.2:8200
+        
+        command: ["/bin/sh"]
+        args:
+        - "-c"
+        - |
+        cat /etc/vault/vault-agent-config.hcl
+
+        vault agent -config=/etc/vault/vault-agent-config.hcl
+
+        cat /home/vault/.vault-token
+    
+    - name: consul-template
+        image: hashicorp/consul-template
+        imagePullPolicy: Always
+
+        volumeMounts:
+        - name: shared-data
+        mountPath: /etc/secrets
+
+        - name: vault-token
+        mountPath: /home/vault
+
+        - name: config
+        mountPath: /etc/consul-template
+
+        env:
+        - name: HOME
+        value: /home/vault
+
+        - name: VAULT_ADDR
+        value: http://10.0.2.2:8200
+        
+        # Consul-Template looks in $HOME/.vault-token, $VAULT_TOKEN, or -vault-token (via CLI)
+        args: ["-config=/etc/consul-template/consul-template-config.hcl", "-log-level=debug"]
+    
+    - name: app
+        image: registry.hub.docker.com/sethvargo/vault-demo-app:0.1.0
+        imagePullPolicy: Always
+
+        volumeMounts:
+        - name: shared-data
+        mountPath: /etc/secrets
+
+    - name: nginx-container
+        image: nginx
+
+        ports:
+        - containerPort: 80
+
+        volumeMounts:
+        - name: shared-data
+        mountPath: /usr/share/nginx/html
+    ```
