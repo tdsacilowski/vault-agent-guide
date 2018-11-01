@@ -568,6 +568,14 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
     echo $VAULT_K8S_LOGIN | jq
     ```
 
+- Create ConfigMaps:
+
+    ```
+    # Create Config Map from "config" directory
+    kubectl create configmap example-vault-agent-config --from-file=vault-agent-guide/configs/
+    kubectl get configmap example-vault-agent-config -o yaml
+    ```
+
 - Example Pod spec (example.yml):
 
     ```yaml
@@ -667,4 +675,22 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
         volumeMounts:
         - name: shared-data
         mountPath: /usr/share/nginx/html
+    ```
+
+- Create/test Pod:
+
+    ```
+    kubectl create -f example.yml --record
+    kubectl get pods
+    kubectl logs vault-agent-example
+    kubectl describe vault-agent-example
+
+    # Check for data in Nginx container
+    kubectl exec -it vault-agent-example -c nginx-container -- /bin/bash
+
+    apt-get update
+    apt-get install -y curl procps
+    ps aux
+
+    curl localhost
     ```
