@@ -1,4 +1,12 @@
-# Vault Agent Guide
+# Vault Agent Guide  <!-- omit in toc -->
+
+- [The Challenge](#the-challenge)
+- [Background](#background)
+- [Vault Agent Auto-Auth](#vault-agent-auto-auth)
+- [EC2 Auto-Auth Using the AWS IAM Auth Method](#ec2-auto-auth-using-the-aws-iam-auth-method)
+    - [Part 1: Configure the AWS IAM Auth Method](#part-1-configure-the-aws-iam-auth-method)
+    - [Part 2: Login Manually From the Client Instance](#part-2-login-manually-from-the-client-instance)
+    - [Part 3: Using Vault Agent Auto-Auth on the Client Instance](#part-3-using-vault-agent-auto-auth-on-the-client-instance)
 
 The purpose of this guide is to provide working examples on how to use the Vault Agent. Vault Agent is a client daemon that can perform useful tasks. Currently, it provides a mechanism for easy authentication to Vault in a wide variety of environments. The documentation for using Vault Agent can be found [here](https://www.vaultproject.io/docs/agent/).
 
