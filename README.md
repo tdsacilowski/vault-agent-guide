@@ -62,6 +62,24 @@ In this section, we'll write some dummy data/policies and configure Vault to all
 
 3. [From the Vault **Server**] Login using your initial root token (or other administrative login that you might have already configured).
 
+    ```
+    $ vault login 8HFNOvljUno...
+
+    Success! You are now authenticated. The token information displayed below
+    is already stored in the token helper. You do NOT need to run "vault login"
+    again. Future Vault requests will automatically use this token.
+
+    Key                  Value
+    ---                  -----
+    token                8HFNOvljUno...
+    token_accessor       2nwUJ6kFVqXps6QH4ahdDXzq
+    token_duration       ∞
+    token_renewable      false
+    token_policies       ["root"]
+    identity_policies    []
+    policies             ["root"]
+    ```
+
 4. [From the Vault **Server**] Lets create some dummy data and a read-only policy for our clients:
 
     ```
@@ -274,6 +292,8 @@ In this section we'll take everything we've done so far and apply it to the Vaul
     2018-11-01T04:04:50.443Z [INFO]  sinks finished, exiting
     ```
 
+    > ***NOTE:*** In this example, because our `auto-auth-conf.hcl` configuration file contained the line "`exit_after_auth = true`", Vault Agent simply authenticated and retrieved a token once, wrote it to the defined sink, and exited. Vault Agent can also run in daemon mode where it will continuously renew the retrieved token, and attempt to re-authenticate if that token becomes invalid.
+
 3. [From the Vault **Client**] Let's try an API call using the token that Vault Agent pulled for us to test:
 
     ```
@@ -296,3 +316,157 @@ In this section we'll take everything we've done so far and apply it to the Vaul
         "auth": null
     }
     ```
+
+4. [From the Vault **Client**] In addition to pulling a token and writing it to a location in plaintext, Vault Agent supports response-wrapping of the token, which provides an additional layer of protection for the token. Tokens can be wrapped by either the auth method or by the sink configuration, with each approach solving for different challenges, as described [here](https://www.vaultproject.io/docs/agent/autoauth/index.html#response-wrapping-tokens). In the following example, we will use the sink method.
+
+    [From the Vault **Client**] Let's update our `auto-auth-conf.hcl` file to indicate that we want the Vault token to be response-wrapped when written to the defined sink:
+
+    ```
+    tee /home/ubuntu/auto-auth-conf.hcl <<EOF
+    exit_after_auth = true
+    pid_file = "./pidfile"
+
+    auto_auth {
+        method "aws" {
+            mount_path = "auth/aws"
+            config = {
+                type = "iam"
+                role = "dev-role-iam"
+            }
+        }
+
+        sink "file" {
+            wrap_ttl = "5m"
+            config = {
+                path = "/home/ubuntu/vault-token-via-agent"
+            }
+        }
+    }
+    EOF
+    ```
+
+5. [From the Vault **Client**] Let's run the Vault Agent and inspect the output:
+
+    ```
+    $ vault agent -config=/home/ubuntu/auto-auth-conf.hcl -log-level=debug
+    ==> Vault agent configuration:
+
+                        Cgo: disabled
+                Log Level: debug
+                    Version: Vault v0.11.4
+                Version Sha: 612120e76de651ef669c9af5e77b27a749b0dba3
+
+    ==> Vault server started! Log data will stream in below:
+
+    2018-11-01T05:56:47.709Z [INFO]  sink.file: creating file sink
+    2018-11-01T05:56:47.709Z [INFO]  sink.file: file sink configured: path=/home/ubuntu/vault-token-via-agent
+    2018-11-01T05:56:47.711Z [INFO]  sink.server: starting sink server
+    2018-11-01T05:56:47.711Z [INFO]  auth.handler: starting auth handler
+    2018-11-01T05:56:47.711Z [INFO]  auth.handler: authenticating
+    2018-11-01T05:56:47.738Z [INFO]  auth.handler: authentication successful, sending token to sinks
+    2018-11-01T05:56:47.738Z [INFO]  auth.handler: starting renewal process
+    2018-11-01T05:56:47.749Z [INFO]  auth.handler: renewed auth token
+    2018-11-01T05:56:47.756Z [INFO]  sink.file: token written: path=/home/ubuntu/vault-token-via-agent
+    2018-11-01T05:56:47.756Z [INFO]  sink.server: sink server stopped
+    2018-11-01T05:56:47.756Z [INFO]  sinks finished, exiting
+
+    $ cat /home/ubuntu/vault-token-via-agent | jq
+
+    {
+        "token": "72gNHzRSoxPMEbMXWGZGu8Nh",
+        "accessor": "1e2dYc4L4RqUoGKBlmu2N2vf",
+        "ttl": 300,
+        "creation_time": "2018-11-01T06:03:59.682885269Z",
+        "creation_path": "sys/wrapping/wrap",
+        "wrapped_accessor": ""
+    }
+    ```
+
+    Here we see that instead of a simple token value, we have a JSON object containing a response-wrapped token as well as some additional metadata. In order to get to the true token, we need to first perform an unwrap operation.
+
+6. [From the Vault **Client**] Let's unwrap the response-wrapped token and save it to a `VAULT_TOKEN` env var that other applications can use:
+
+    ```
+    $ export VAULT_TOKEN=$(vault unwrap -field=token $(jq -r '.token' /home/ubuntu/vault-token-via-agent))
+
+    $ echo $VAULT_TOKEN
+    5twYDIqsxyVLMJ9MYFNKPWXG
+    ```
+
+    Notice that the value saved to the `VAULT_TOKEN` is not the same as the `token` value in the file `/home/ubuntu/vault-token-via-agent`. The value in `VAULT_TOKEN` is the unwrapped token retrieved by Vault Agent. Additionally, note that if we try to unwrap that same value again, we get an error:
+
+    ```
+    $ export VAULT_TOKEN=$(vault unwrap -field=token $(jq -r '.token' /home/ubuntu/vault-token-via-agent))
+
+    Error unwrapping: Error making API request.
+
+    URL: PUT http://10.0.101.219:8200/v1/sys/wrapping/unwrap
+    Code: 400. Errors:
+
+    * wrapping token is not valid or does not exist
+    ```
+
+    A response-wrapped token can only be unwrapped once. Additional attempts to unwrap an already-unwrapped token will result in triggering an error. Review [this doc](https://www.vaultproject.io/docs/concepts/response-wrapping.html) for more information on Cubbyhole and response-wrapping.
+
+    > This provides a powerful mechanism for information sharing in many environments. In the types of scenarios, described above, often the best practical option is to provide cover for the secret information, be able to detect malfeasance (interception, tampering), and limit lifetime of the secret's exposure. Response wrapping performs all three of these duties:
+    > 
+    > It provides *cover* by ensuring that the value being transmitted across the wire is not the actual secret but a reference to such a secret, namely the response-wrapping token. Information stored in logs or captured along the way do not directly see the sensitive information.
+    > 
+    > It provides *malfeasance detection* by ensuring that only a single party can ever unwrap the token and see what's inside. A client receiving a token that cannot be unwrapped can trigger an immediate security incident. In addition, a client can inspect a given token before unwrapping to ensure that its origin is from the expected location in Vault.
+    > 
+    > It *limits the lifetime* of secret exposure because the response-wrapping token has a lifetime that is separate from the wrapped secret (and often can be much shorter), so if a client fails to come up and unwrap the token, the token can expire very quickly.
+
+
+In the above examples, we manually ran Vault Agent in order to demonstrate how it works. How you actually integrate Vault Agent into your application deployment workflow will vary with a number of factors. Some questions to ask to help determine appropriate usage:
+
+- What is the lifecycle of my application? Is it more ephemeral or long-lived?
+- What are the lifecycles of my authentication tokens? Are they long-lived and simply need to be renewed over and over to demonstrate liveliness of a service or do we want to enforce periodic re-authentications?
+- Do I have a number of applications running on my host that each need their own token?
+- Can I use a native authentication capability (e.g. AWS IAM, K8s, Azure MSI, Google Cloud IAM, etc.)?
+
+The answers to these questions will help you determine if Vault Agent should run as a daemon or as a prerequisite of a service configuration. Take for example the following `Systemd` service definition for running Nomad:
+
+```
+[Unit]
+Description=Nomad Agent
+Requires=consul-online.target
+After=consul-online.target
+
+[Service]
+KillMode=process
+KillSignal=SIGINT
+Environment=VAULT_ADDR=http://active.vault.service.consul:8200
+Environment=VAULT_SKIP_VERIFY=true
+ExecStartPre=/usr/local/bin/vault agent -config /etc/vault-agent.d/vault-agent.hcl
+ExecStart=/usr/bin/nomad-vault.sh
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+StartLimitBurst=3
+StartLimitIntervalSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Notice the `ExecStartPre` directive that runs Vault Agent before the desired service starts. The service startup script expects a Vault token to be set as is demonstrated in the `/usr/bin/nomad-vault.sh` startup script:
+
+
+```bash
+#!/usr/bin/env bash
+
+if [ -f /mnt/ramdisk/token ]; then
+  exec env VAULT_TOKEN=$(vault unwrap -field=token $(jq -r '.token' /mnt/ramdisk/token)) \
+    /usr/local/bin/nomad agent \
+      -config=/etc/nomad.d \
+      -vault-tls-skip-verify=true
+else
+  echo "Nomad service failed due to missing Vault token"
+  exit 1
+fi
+```
+
+Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` env var. Here, we're using Vault Agent to obtain a token and write it out to a Ramdisk and as part of the Nomad startup script, we read the response-wrapped token from the Ramdisk and save it to our `VAULT_TOKEN` env var before actually starting Nomad.
+
+> ***NOTE:*** The above example is part of [this](https://github.com/greenbrian/musical-spork) project.
