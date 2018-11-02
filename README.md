@@ -495,16 +495,16 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
     apiVersion: rbac.authorization.k8s.io/v1beta1
     kind: ClusterRoleBinding
     metadata:
-    name: role-tokenreview-binding
-    namespace: default
+      name: role-tokenreview-binding
+      namespace: default
     roleRef:
-    apiGroup: rbac.authorization.k8s.io
-    kind: ClusterRole
-    name: system:auth-delegator
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: system:auth-delegator
     subjects:
     - kind: ServiceAccount
-    name: vault-auth
-    namespace: default
+      name: vault-auth
+      namespace: default
     EOH
     ```
 
@@ -521,6 +521,7 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
         ttl="30s" \
         username="appuser" \
         password="suP3rsec(et!"
+    
     ```
 
 - Enable and Configure the K8s Auth Method:
