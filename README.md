@@ -6,9 +6,9 @@ The purpose of this guide is to provide working examples on how to use the Vault
 - [Background](#background)
 - [Vault Agent Auto-Auth Overview](#vault-agent-auto-auth-overview)
 - [EC2 Auto-Auth Using the AWS IAM Auth Method](#ec2-auto-auth-using-the-aws-iam-auth-method)
-    - [Part 1: Configure the AWS IAM Auth Method](#part-1-configure-the-aws-iam-auth-method)
-    - [Part 2: Login Manually From the Client Instance](#part-2-login-manually-from-the-client-instance)
-    - [Part 3: Using Vault Agent Auto-Auth on the Client Instance](#part-3-using-vault-agent-auto-auth-on-the-client-instance)
+  - [Part 1: Configure the AWS IAM Auth Method](#part-1-configure-the-aws-iam-auth-method)
+  - [Part 2: Login Manually From the Client Instance](#part-2-login-manually-from-the-client-instance)
+  - [Part 3: Using Vault Agent Auto-Auth on the Client Instance](#part-3-using-vault-agent-auto-auth-on-the-client-instance)
 - [Pod Auto-Auth Using the Kubernetes Auth Method](#pod-auto-auth-using-the-kubernetes-auth-method)
 
 ## The Challenge
@@ -99,9 +99,9 @@ In this section, we'll write some dummy data/policies and configure Vault to all
     EOH
 
     vault kv put secret/myapp/config \
-        ttl="30s" \
-        username="appuser" \
-        password="suP3rsec(et!"
+        ttl='30s' \
+        username='appuser' \
+        password='suP3rsec(et!'
     ```
 
 5. Enable the aws auth method:
@@ -484,7 +484,14 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
 
 [WIP]
 
-- Spin up a K8s cluster. I'm using [Minikube](https://kubernetes.io/docs/setup/minikube/) for this example. You can also check out this workshop repo for running [Vault on GKE](https://github.com/sethvargo/vault-kubernetes-workshop).
+Prerequisites:
+
+- A running Kubernetes environment with `kubectl` configured to talk to it. I'm using [Minikube](https://kubernetes.io/docs/setup/minikube/) for these examples. You can also check out [this](https://github.com/sethvargo/vault-kubernetes-workshop) workshop repo for running Vault on GKE
+-  A running Vault environment that is reachable from your K8s environment (set your `VAULT_ADDR` env var to point to it)
+
+Steps:
+
+- `cd` into the cloned directory of this repo (e.g. `~/dev/vault-agent-guide`)
 
 - Create K8s Service Account for Vault (TokenReviewer API):
 
@@ -518,10 +525,9 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
     EOH
 
     vault kv put secret/myapp/config \
-        ttl="30s" \
-        username="appuser" \
-        password="suP3rsec(et!"
-    
+        ttl='30s' \
+        username='appuser' \
+        password='suP3rsec(et!'
     ```
 
 - Enable and Configure the K8s Auth Method:
@@ -539,9 +545,9 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
 
     # Tell Vault how to communicate with our K8s cluster
     vault write auth/kubernetes/config \
-    token_reviewer_jwt="$SA_JWT_TOKEN" \
-    kubernetes_host="https://$K8S_HOST:8443" \
-    kubernetes_ca_cert="$SA_CA_CRT"
+        token_reviewer_jwt="$SA_JWT_TOKEN" \
+        kubernetes_host="https://$K8S_HOST:8443" \
+        kubernetes_ca_cert="$SA_CA_CRT"
 
     # Create a role to map K8s Service Account/Namespace to Vault policies, and default TTL for tokens
     vault write auth/kubernetes/role/example \
@@ -564,6 +570,8 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
 
     KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
 
+    echo $KUBE_TOKEN
+
     VAULT_K8S_LOGIN=$(curl --request POST --data '{"jwt": "'"$KUBE_TOKEN"'", "role": "example"}' $VAULT_ADDR/v1/auth/kubernetes/login)
 
     echo $VAULT_K8S_LOGIN | jq
@@ -573,7 +581,7 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
 
     ```
     # Create Config Map from "config" directory
-    kubectl create configmap example-vault-agent-config --from-file=vault-agent-guide/configs/
+    kubectl create configmap example-vault-agent-config --from-file=k8s/configs/
     kubectl get configmap example-vault-agent-config -o yaml
     ```
 
@@ -584,114 +592,104 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
     apiVersion: v1
     kind: Pod
     metadata:
-    name: vault-agent-example
+      name: vault-agent-example
     spec:
-    
-    serviceAccountName: vault-auth
-    
-    restartPolicy: Never
+      serviceAccountName: vault-auth
 
-    volumes:
-    - name: vault-token
-        emptyDir:
-        medium: Memory
-    
-    - name: config
-        configMap:
-        name: example-vault-agent-config
-        items:
-        - key: vault-agent-config.hcl
-            path: vault-agent-config.hcl
+      restartPolicy: Never
 
-        - key: consul-template-config.hcl
-            path: consul-template-config.hcl
-    
-    - name: shared-data
-        emptyDir: {}
-
-    containers:
-    - name: vault-agent-auth
-        image: vault
-
-        volumeMounts:
+      volumes:
         - name: vault-token
-        mountPath: /home/vault
-        
-        - name: config
-        mountPath: /etc/vault
-        
-        # This assumes Vault running on local host and K8s running in Minikube using VirtualBox
-        env:
-        - name: VAULT_ADDR
-        value: http://10.0.2.2:8200
-        
-        command: ["/bin/sh"]
-        args:
-        - "-c"
-        - |
-        cat /etc/vault/vault-agent-config.hcl
-
-        vault agent -config=/etc/vault/vault-agent-config.hcl
-
-        cat /home/vault/.vault-token
-    
-    - name: consul-template
-        image: hashicorp/consul-template
-        imagePullPolicy: Always
-
-        volumeMounts:
-        - name: shared-data
-        mountPath: /etc/secrets
-
-        - name: vault-token
-        mountPath: /home/vault
+          emptyDir:
+            medium: Memory
 
         - name: config
-        mountPath: /etc/consul-template
+          configMap:
+            name: example-vault-agent-config
+            items:
+              - key: vault-agent-config.hcl
+                path: vault-agent-config.hcl
 
-        env:
-        - name: HOME
-        value: /home/vault
+              - key: consul-template-config.hcl
+                path: consul-template-config.hcl
 
-        - name: VAULT_ADDR
-        value: http://10.0.2.2:8200
-        
-        # Consul-Template looks in $HOME/.vault-token, $VAULT_TOKEN, or -vault-token (via CLI)
-        args: ["-config=/etc/consul-template/consul-template-config.hcl", "-log-level=debug"]
-    
-    - name: app
-        image: registry.hub.docker.com/sethvargo/vault-demo-app:0.1.0
-        imagePullPolicy: Always
-
-        volumeMounts:
         - name: shared-data
-        mountPath: /etc/secrets
+          emptyDir: {}
 
-    - name: nginx-container
-        image: nginx
+      containers:
+        # Vault container
+        - name: vault-agent-auth
+          image: vault
 
-        ports:
-        - containerPort: 80
+          volumeMounts:
+            - name: vault-token
+              mountPath: /home/vault
 
-        volumeMounts:
-        - name: shared-data
-        mountPath: /usr/share/nginx/html
+            - name: config
+              mountPath: /etc/vault
+
+          # This assumes Vault running on local host and K8s running in Minikube using VirtualBox
+          env:
+            - name: VAULT_ADDR
+              value: http://10.0.2.2:8200
+
+          # Run the Vault agent
+          args:
+            [
+              "agent",
+              "-config=/etc/vault/vault-agent-config.hcl",
+              #"-log-level=debug",
+            ]
+
+        # Consul Template container
+        - name: consul-template
+          image: hashicorp/consul-template
+          imagePullPolicy: Always
+
+          volumeMounts:
+            - name: vault-token
+              mountPath: /home/vault
+
+            - name: config
+              mountPath: /etc/consul-template
+
+            - name: shared-data
+              mountPath: /etc/secrets
+
+          env:
+            - name: HOME
+              value: /home/vault
+
+            - name: VAULT_ADDR
+              value: http://10.0.2.2:8200
+
+          # Consul-Template looks in $HOME/.vault-token, $VAULT_TOKEN, or -vault-token (via CLI)
+          args:
+            [
+              "-config=/etc/consul-template/consul-template-config.hcl",
+              #"-log-level=debug",
+            ]
+
+        # Nginx container
+        - name: nginx-container
+          image: nginx
+
+          ports:
+            - containerPort: 80
+
+          volumeMounts:
+            - name: shared-data
+              mountPath: /usr/share/nginx/html
     ```
 
 - Create/test Pod:
 
     ```
-    kubectl create -f example.yml --record
-    kubectl get pods
-    kubectl logs vault-agent-example
-    kubectl describe vault-agent-example
+    # Create the Pod
+    kubectl apply -f k8s/example.yml --record
+    
+    # Port-forward so we can view from browser
+    kubectl port-forward pod/vault-agent-example 8080:80
 
-    # Check for data in Nginx container
-    kubectl exec -it vault-agent-example -c nginx-container -- /bin/bash
-
-    apt-get update
-    apt-get install -y curl procps
-    ps aux
-
-    curl localhost
+    # In a browser, go to `localhost:8080`
     ```

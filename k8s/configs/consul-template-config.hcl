@@ -4,22 +4,20 @@ vault {
     backoff = "1s"
   }
 }
-template {
-  contents = <<EOH
-  {{- with secret "secret/myapp/config" }}
-  username: {{ .Data.username }}
-  password: {{ .Data.password }}
-  {{ end }}
-  EOH
-destination = "/etc/secrets/config"
-}
-template {
-  contents = <<EOH
-  {{- with secret "secret/myapp/config" }}
-  username: {{ .Data.username }}
-  password: {{ .Data.password }}
-  {{ end }}
-  EOH
-destination = "/etc/secrets/index.html"
-}
 
+template {
+  destination = "/etc/secrets/index.html"
+  contents = <<EOH
+  <html>
+  <body>
+  <p>Some secrets:</p>
+  {{- with secret "secret/myapp/config" }}
+  <ul>
+  <li><pre>username: {{ .Data.username }}</pre></li>
+  <li><pre>password: {{ .Data.password }}</pre></li>
+  </ul>
+  {{ end }}
+  </body>
+  </html>  
+  EOH
+}
