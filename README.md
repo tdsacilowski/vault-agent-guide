@@ -484,6 +484,9 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
 
 [WIP]
 
+K8s Auth Workflow:
+![K8s Auth Workflow](images/vault-k8s-auth-workflow.png)
+
 Prerequisites:
 
 - A running Kubernetes environment with `kubectl` configured to talk to it. I'm using [Minikube](https://kubernetes.io/docs/setup/minikube/) for these examples. You can also check out [this](https://github.com/sethvargo/vault-kubernetes-workshop) workshop repo for running Vault on GKE
@@ -553,7 +556,7 @@ Steps:
     vault write auth/kubernetes/role/example \
         bound_service_account_names=vault-auth \
         bound_service_account_namespaces=default \
-        policies=myapp-kv-rw \
+        policies=myapp-kv-ro \
         ttl=24h
     ```
 
