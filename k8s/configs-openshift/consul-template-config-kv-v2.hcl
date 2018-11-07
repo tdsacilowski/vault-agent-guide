@@ -5,6 +5,7 @@ vault {
   }
 }
 
+# KV v2: https://github.com/hashicorp/nomad/blob/c6d9dba7b54898cb9c6925b407e6e18e464f8d34/website/source/docs/job-specification/template.html.md#vault-kv-api-v2
 template {
   destination = "/etc/secrets/index.html"
   contents = <<EOH

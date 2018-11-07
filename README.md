@@ -708,6 +708,16 @@ Steps:
 - Create/test Pod:
 
     ```
+    # Check which KV version the `secret/` path is using:
+    vault secrets list -detailed
+
+    # Example output:
+    Path        Type        ...        Options
+    ----        ----                   -------
+    ...
+    secret/     kv                     map[version:2]
+    ...
+
     # Create the Pod (make sure to use the right example.yml file based on your KV secret engine version)
     kubectl apply -f k8s/[example-kv-v1.yml | example-kv-v2.yml] --record
     
@@ -758,7 +768,7 @@ vault write auth/openshift/login role=example jwt=${SA_JWT_TOKEN}
 # API
 curl --request POST --data '{"jwt": "'"${SA_JWT_TOKEN}"'", "role": "example"}' $VAULT_ADDR/v1/auth/openshift/login
 
-    # Create Config Map from "configs-openshift" directory
+# Create Config Map from "configs-openshift" directory
 oc create configmap example-vault-agent-config --from-file=k8s/configs-openshift/
 
 # Create the Pod (make sure to use the right example.yml file based on your KV secret engine version)
