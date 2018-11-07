@@ -517,19 +517,40 @@ Steps:
     EOH
     ```
 
-- Create dummy data/policy in Vault:
+- Create some dummy data and a read-only policy in Vault. Make note of whether you're using the KV v1 or v2 (newer versions of Vault mount `secret/` as a KV v2 secret engine):
 
     ```
+    # Create read-only policy
     vault policy write myapp-kv-ro - <<EOH
+    # If using KV v1
     path "secret/myapp/*" {
+        capabilities = ["read", "list"]
+    }
+
+    # If using KV v2
+    path "secret/data/myapp/*" {
         capabilities = ["read", "list"]
     }
     EOH
 
+    # Write some dummy data
     vault kv put secret/myapp/config \
         ttl='30s' \
         username='appuser' \
         password='suP3rsec(et!'
+    
+    # Create a local vault user to test out the policy
+    vault auth enable userpass
+
+    vault write auth/userpass/users/test-user \
+        password=foo \
+        policies=myapp-kv-ro
+    
+    vault login -method=userpass \
+        username=test-user \
+        password=foo
+    
+    vault kv get secret/myapp/config
     ```
 
 - Enable and Configure the K8s Auth Method:
@@ -582,7 +603,7 @@ Steps:
 - Create ConfigMaps:
 
     ```
-    # Create Config Map from "config" directory
+    # Create Config Map from "configs-k8s" directory
     kubectl create configmap example-vault-agent-config --from-file=k8s/configs-k8s/
     kubectl get configmap example-vault-agent-config -o yaml
     ```
@@ -612,7 +633,7 @@ Steps:
               - key: vault-agent-config.hcl
                 path: vault-agent-config.hcl
 
-              - key: consul-template-config.hcl
+              - key: consul-template-config-kv-v1.hcl
                 path: consul-template-config.hcl
 
         - name: shared-data
@@ -687,8 +708,8 @@ Steps:
 - Create/test Pod:
 
     ```
-    # Create the Pod
-    kubectl apply -f k8s/example.yml --record
+    # Create the Pod (make sure to use the right example.yml file based on your KV secret engine version)
+    kubectl apply -f k8s/[example-kv-v1.yml | example-kv-v2.yml] --record
     
     # Port-forward so we can view from browser
     kubectl port-forward pod/vault-agent-example 8080:80
@@ -737,7 +758,12 @@ vault write auth/openshift/login role=example jwt=${SA_JWT_TOKEN}
 # API
 curl --request POST --data '{"jwt": "'"${SA_JWT_TOKEN}"'", "role": "example"}' $VAULT_ADDR/v1/auth/openshift/login
 
+    # Create Config Map from "configs-openshift" directory
 oc create configmap example-vault-agent-config --from-file=k8s/configs-openshift/
 
-oc apply -f k8s/example.yml --record
+# Create the Pod (make sure to use the right example.yml file based on your KV secret engine version)
+oc apply -f k8s/[example-kv-v1.yml | example-kv-v2.yml] --record
+
+# You can inspect the container logs using the following
+oc logs pods/vault-agent-example -c [vault-agent-auth | consul-template | nginx-container]
 ```

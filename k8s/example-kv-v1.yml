@@ -20,7 +20,7 @@ spec:
           - key: vault-agent-config.hcl
             path: vault-agent-config.hcl
 
-          - key: consul-template-config.hcl
+          - key: consul-template-config-kv-v1.hcl
             path: consul-template-config.hcl
 
     - name: shared-data
