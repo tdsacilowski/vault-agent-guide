@@ -583,7 +583,7 @@ Steps:
 
     ```
     # Create Config Map from "config" directory
-    kubectl create configmap example-vault-agent-config --from-file=k8s/configs/
+    kubectl create configmap example-vault-agent-config --from-file=k8s/configs-k8s/
     kubectl get configmap example-vault-agent-config -o yaml
     ```
 
@@ -737,7 +737,7 @@ vault write auth/openshift/login role=example jwt=${SA_JWT_TOKEN}
 # API
 curl --request POST --data '{"jwt": "'"${SA_JWT_TOKEN}"'", "role": "example"}' $VAULT_ADDR/v1/auth/openshift/login
 
-oc create configmap example-vault-agent-config --from-file=k8s/configs/
+oc create configmap example-vault-agent-config --from-file=k8s/configs-openshift/
 
 oc apply -f k8s/example.yml --record
 ```
