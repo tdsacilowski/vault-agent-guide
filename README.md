@@ -9,7 +9,8 @@ The purpose of this guide is to provide working examples on how to use the Vault
   - [Part 1: Configure the AWS IAM Auth Method](#part-1-configure-the-aws-iam-auth-method)
   - [Part 2: Login Manually From the Client Instance](#part-2-login-manually-from-the-client-instance)
   - [Part 3: Using Vault Agent Auto-Auth on the Client Instance](#part-3-using-vault-agent-auto-auth-on-the-client-instance)
-- [Pod Auto-Auth Using the Kubernetes Auth Method](#pod-auto-auth-using-the-kubernetes-auth-method)
+- [[WIP] Kubernetes: Pod Auto-Auth Using the Kubernetes Auth Method](#wip-kubernetes-pod-auto-auth-using-the-kubernetes-auth-method)
+- [[WIP] OpenShift: Pod Auto-Auth Using the Kubernetes Auth Method](#wip-openshift-pod-auto-auth-using-the-kubernetes-auth-method)
 
 ## The Challenge
 
@@ -480,9 +481,7 @@ Many applications that expect Vault tokens typically look for a `VAULT_TOKEN` en
 
 > ***NOTE:*** The above example is part of [this](https://github.com/greenbrian/musical-spork) project.
 
-## Pod Auto-Auth Using the Kubernetes Auth Method
-
-[WIP]
+## [WIP] Kubernetes: Pod Auto-Auth Using the Kubernetes Auth Method
 
 K8s Auth Workflow:
 ![K8s Auth Workflow](images/vault-k8s-auth-workflow.png)
@@ -696,3 +695,49 @@ Steps:
 
     # In a browser, go to `localhost:8080`
     ```
+
+
+## [WIP] OpenShift: Pod Auto-Auth Using the Kubernetes Auth Method
+
+```
+# Create a new OpenShift project
+oc new-project hashicorp
+
+# Create the vault-auth service account
+oc create sa vault-auth
+
+# Add token review API to the service account (in the hashicorp project)
+oc adm policy add-cluster-role-to-user system:auth-delegator system:serviceaccount:hashicorp:vault-auth
+
+# Set Up Vault with K8s Auth backend
+# First, get env details (this is specific to Minishift)
+export SA_JWT_TOKEN=$(oc serviceaccounts get-token 'vault-auth')
+export SA_CA_CRT=$(oc get secret $VAULT_SA_NAME -o jsonpath="{.data['ca\.crt']}" | base64 --decode; echo)
+export K8S_HOST=$(minishift ip)
+
+# Enable the K8s auth method at the default path ("auth/kubernetes")
+vault auth enable -path=openshift kubernetes
+
+# Tell Vault how to communicate with our OpenShift cluster
+vault write auth/openshift/config \
+    token_reviewer_jwt="$SA_JWT_TOKEN" \
+    kubernetes_host="https://$K8S_HOST:8443" \
+    kubernetes_ca_cert="$SA_CA_CRT"
+
+# Create a role to map OpenShift Service Account/Project to Vault policies, and default TTL for tokens
+vault write auth/openshift/role/example \
+    bound_service_account_names=vault-auth \
+    bound_service_account_namespaces=hashicorp \
+    policies=myapp-kv-ro \
+    ttl=24h
+
+# Test to see if the JWT allows for login (on the host)
+# CLI
+vault write auth/openshift/login role=example jwt=${SA_JWT_TOKEN}
+# API
+curl --request POST --data '{"jwt": "'"${SA_JWT_TOKEN}"'", "role": "example"}' $VAULT_ADDR/v1/auth/openshift/login
+
+oc create configmap example-vault-agent-config --from-file=k8s/configs/
+
+oc apply -f k8s/example.yml --record
+```
