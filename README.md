@@ -16,6 +16,7 @@ The following should be available and accessible before continuing on with the e
   - In this example, we'll use a local development installation of OpenShift 3.x using [Minishift](https://docs.okd.io/3.11/minishift/getting-started/index.html)
   - If a standard Kubernetes environment is preferred, follow along with [Minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/); any relevant differences will ne noted where applicable
 - A running Vault instance reachable from your Kubernetes or OpenShift environment
+- Kubernetes API has to be reachable for the Vault instance (Vault to verify Service Account token)
 - The `kubectl` command-line tool, configured to communicate with your cluster
 - The [Vault CLI](https://www.vaultproject.io/downloads) to easily interact with your Vault server
   - Configure it to point to your Vault server by setting the `VAULT_ADDR` environment variable
